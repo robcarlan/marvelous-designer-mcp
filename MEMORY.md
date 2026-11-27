@@ -139,3 +139,14 @@ pyproject.toml / uv.lock
 | `C:\Users\Public\Documents\MarvelousDesigner\New Assets\api_plugin_log.txt` | MD's own plugin loader log — useful when nothing seems to happen |
 | `~/md_mcp_listener.log` | Our listener's status / errors (Python + C++ both append here) |
 | `~/md_mcp_probe.log` | Output from the C++ probe DLL diagnostic (not produced on MD) |
+
+## Studio fork, 27 Nov 2026 (MD 2026.1.263, the 19 Nov build)
+
+- `md_pump.py` (non-blocking, Win32 timer on MD's event loop, job queue, dialog capture and dismissal) passes
+  `tests/pump_selftest.py` outside MD. Not yet run inside MD.
+- **MD 2026.1 never starts its Python at launch:** `_PyRuntime` in python311.dll stays all zeros until the Python
+  Editor or a plug-in is opened. So the `.pth` launch hook (`scripts/install_autostart.py`) never fires, and neither
+  `-python` nor a positional `.py` starts it. The hook stays for any build or route that does start Python (headless
+  with a key, a StartupPlugin.dll).
+- On a hidden desktop, posted mouse clicks on the Qt menu bar and a posted shortcut key are ignored, and UI
+  Automation can't reach the window (`ElementFromHandle` raises a COMError).
