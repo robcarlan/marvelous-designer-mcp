@@ -120,6 +120,30 @@ tools to work.
 
 Anything not covered by a wrapper: use `execute_python` directly.
 
+## No-click, non-freezing listener (md_pump, studio fork)
+
+`md_addon/md_pump.py` is a second listener that never blocks MD. A message-only window gets a `WM_TIMER` from MD's
+own event loop every 30 ms; each tick answers waiting requests (`select` with no wait) and runs at most one queued
+job. MD's GUI stays alive between calls.
+
+- **Starts at launch, no click.** `python scripts/install_autostart.py` puts one `.pth` line in MD's Python
+  (`Configuration/python311/Lib/site-packages/md_mcp_autostart.pth`). It does nothing unless MD starts with
+  `MD_MCP_AUTOSTART=1` and `MD_MCP_ADDON=<this repo>/md_addon`, so a normal MD launch is untouched. Log:
+  `%USERPROFILE%\md_mcp\pump.log` (`MD_MCP_LOGDIR`).
+- **Job queue.** `job_submit` (a script path or code, plus `env` and `args`) returns at once; `job_status` gives the
+  state, result, error, output tail and elapsed time. `job_list`, `job_cancel`.
+- **Modal dialogs.** A dialog's own event loop keeps dispatching our timer, so a nested tick sees it. During a call
+  or job, a new dialog is captured to a BMP (`<logdir>/dialogs/`), logged, and closed after `MD_MCP_DIALOG_GRACE`
+  seconds (3): `WM_CLOSE`, then Esc, then Enter, one step per grace. `MD_MCP_DIALOGS=report` only reports.
+  Nested ticks also answer the safe methods (`ping`, `status`, `dialogs`, `dismiss_dialogs`, `job_*`, `quit`).
+- **Typed operations** (`md_addon/md_ops.py`, MCP tools of the same names): `import_avatar_fbx`,
+  `import_avatar_alembic`, `pose_frame`, `import_garment` (uses the .zpac inside a .zprj, so the avatar's animation
+  survives), `open_project`, `record_animation`, `export_alembic`, `export_obj`, `new_project`.
+- `quit` ends MD at once with no save prompt.
+
+Pure Python work that never lets MD pump messages still holds the thread; requests wait in the socket backlog until
+it ends, so give clients a timeout longer than the call.
+
 ## Why does MD freeze while the listener runs?
 
 MD's embedded Python (3.11) doesn't give CPU to background threads — a daemon

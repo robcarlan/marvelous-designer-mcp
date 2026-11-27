@@ -214,3 +214,127 @@ def md_api(module: str, contains: str = "") -> dict:
         "result = sorted(names)\n"
     )
     return _md_exec(code)
+
+
+# ---------------------------------------------------------------- md_pump (non-blocking listener) tools
+# These need md_addon/md_pump.py running in MD (scripts/install_autostart.py + MD_MCP_AUTOSTART=1 at launch, or
+# md_pump.start() from the Python Editor). The blocking md_listener.py answers only ping/execute_python/shutdown.
+
+def _call(method: str, params: dict | None = None) -> dict:
+    try:
+        return {"ok": True, "result": bridge.call(method, params or {})}
+    except bridge.BridgeError as e:
+        return {"ok": False, "error": str(e)}
+    except OSError as e:
+        return {"ok": False, "error": f"listener not reachable on {MD_HOST}:{MD_PORT}: {e}"}
+
+
+def _op(fn: str, **kw) -> dict:
+    """Run md_ops.<fn>(**kw) inside MD."""
+    return _md_exec(f"import md_ops\nresult = md_ops.{fn}(**{kw!r})\n")
+
+
+@mcp.tool()
+def status() -> dict:
+    """Pump status: busy call or job, the job queue, MD's main window, and any dialog up now (with a BMP capture)."""
+    return _call("status")
+
+
+@mcp.tool()
+def dialogs() -> dict:
+    """Dialog windows MD has up now: title, class, whether modal, a BMP capture path, and what was done to each."""
+    return _call("dialogs")
+
+
+@mcp.tool()
+def dismiss_dialogs(hwnd: int | None = None) -> dict:
+    """Close MD's dialogs (or one, by hwnd), one escalation step per call: WM_CLOSE, then Esc, then Enter."""
+    return _call("dismiss_dialogs", {"hwnd": hwnd})
+
+
+@mcp.tool()
+def job_submit(script: str = "", code: str = "", name: str = "job", env: dict | None = None, args: object = None) -> dict:
+    """Queue long work (a Python file by absolute path, or code) to run inside MD between requests. Returns its id at
+    once; poll job_status. `env` is set in MD's environment before it runs; `args` is bound as the global `args`."""
+    return _call("job_submit", {"script": script or None, "code": code or None, "name": name, "env": env or {}, "args": args})
+
+
+@mcp.tool()
+def job_status(id: str, tail: int = 4000) -> dict:
+    """A job's state (queued, running, done, error), result, error, elapsed time, output tail and the dialogs it hit."""
+    return _call("job_status", {"id": id, "tail": tail})
+
+
+@mcp.tool()
+def job_list() -> dict:
+    """Every job this MD session has seen, with its state."""
+    return _call("job_list")
+
+
+@mcp.tool()
+def job_cancel(id: str) -> dict:
+    """Drop a queued job (a running one can't be stopped)."""
+    return _call("job_cancel", {"id": id})
+
+
+@mcp.tool()
+def quit_md() -> dict:
+    """End Marvelous Designer at once, with no save prompt."""
+    return _call("quit")
+
+
+@mcp.tool()
+def new_project() -> dict:
+    """Empty the scene (utility_api.NewProject)."""
+    return _op("new_project")
+
+
+@mcp.tool()
+def import_avatar_fbx(path: str, scale: float = 10.0, joint_animation: bool = True, options: dict | None = None) -> dict:
+    """Import an avatar with its joint animation from an FBX. scale 10 for a cm FBX (MD reads it as mm at 1.0).
+    `options` overrides ImportExportOption fields by name. Then pose_frame(start) before a garment goes in."""
+    return _op("import_avatar_fbx", path=path, scale=scale, joint_animation=joint_animation, options=options)
+
+
+@mcp.tool()
+def import_avatar_alembic(path: str, unit: float = 0.1, options: dict | None = None) -> dict:
+    """Import a vertex-animated avatar from an Alembic (unit 0.1 = cm)."""
+    return _op("import_avatar_alembic", path=path, unit=unit, options=options)
+
+
+@mcp.tool()
+def pose_frame(frame: float) -> dict:
+    """Set the timeline frame and Simulate(1): the only way to re-pose the avatar after an import."""
+    return _op("pose_frame", frame=frame)
+
+
+@mcp.tool()
+def import_garment(path: str, workdir: str = "", options: dict | None = None) -> dict:
+    """Add a garment (.zpac, or the .zpac inside a .zprj) without replacing the avatar or wiping its animation."""
+    return _op("import_garment", path=path, workdir=workdir or None, options=options)
+
+
+@mcp.tool()
+def open_project(path: str, options: dict | None = None) -> dict:
+    """Open a .zprj as the whole scene: its avatar, garment and animation."""
+    return _op("open_project", path=path, options=options)
+
+
+@mcp.tool()
+def record_animation(start: float, end: float, substeps: int = 5, chunk: int = 0) -> dict:
+    """Simulate and record the cloth over frames start..end (RunAnimationRecording). Long: prefer job_submit for a
+    long clip, e.g. code='import md_ops; result = md_ops.record(1, 190)'."""
+    return _op("record", start=start, end=end, substeps=substeps, chunk=chunk)
+
+
+@mcp.tool()
+def export_alembic(path: str, garment: bool = True, avatar: bool = False, scale: float = 0.1, options: dict | None = None) -> dict:
+    """Export the recorded cloth as an Alembic (scale 0.1 = cm; garment only by default)."""
+    return _op("export_alembic", path=path, garment=garment, avatar=avatar, scale=scale, options=options)
+
+
+@mcp.tool()
+def export_obj(path: str, garment: bool = True, avatar: bool = False, scale: float = 0.1, frame: float | None = None,
+               options: dict | None = None) -> dict:
+    """Export the garment (and/or avatar) as an OBJ, at `frame` if given."""
+    return _op("export_obj", path=path, garment=garment, avatar=avatar, scale=scale, frame=frame, options=options)
